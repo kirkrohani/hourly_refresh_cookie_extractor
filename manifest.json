@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Hourly Refresh & Cookie Extractor",
+  "version": "1.0",
+  "description": "Refreshes active tab every hour and extracts cookies",
+
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "cookies",
+    "storage",
+    "alarms",
+    "identity"
+  ],
+
+  "host_permissions": ["<all_urls>"],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Hourly Refresh Control"
+  },
+
+  "oauth2": {
+    "client_id": "859908690357-0arl3phbf7r5dhapq2sdheh9ougko2kg.apps.googleusercontent.com",
+    "scopes": ["https://www.googleapis.com/auth/spreadsheets"]
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}
