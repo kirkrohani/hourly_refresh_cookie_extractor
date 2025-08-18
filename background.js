@@ -121,13 +121,18 @@ class GoogleSheetsAPI {
         const errorText = await response.text();
         console.error(`Sheet access test failed: ${errorText}`);
 
-        // If 401, try to refresh the token
+        // If 401, try to refresh the token and retry
         if (response.status === 401) {
-          console.log('401 error - attempting to refresh token...');
-          await this.refreshToken();
-          throw new Error(
-            `Authentication failed. Token may be expired. Please re-authenticate.`
+          console.log(
+            '🧪 TEST SHEET: 401 error detected - triggering token refresh...'
           );
+          await this.refreshToken();
+
+          console.log(
+            '🧪 TEST SHEET: Retrying test with refreshed token...'
+          );
+          // Retry the test with the new token
+          return await this.testSheetAccess();
         }
 
         throw new Error(
@@ -145,40 +150,168 @@ class GoogleSheetsAPI {
   }
 
   async refreshToken() {
-    try {
-      console.log('Refreshing auth token...');
+    console.log(
+      '🔄 TOKEN REFRESH: Starting token refresh attempt...'
+    );
+    console.log(
+      `🔄 TOKEN REFRESH: Current token exists: ${!!authToken}`
+    );
+    console.log(
+      `🔄 TOKEN REFRESH: Current token length: ${
+        authToken ? authToken.length : 'N/A'
+      }`
+    );
 
+    try {
       // Remove cached token
       if (authToken) {
+        console.log('🔄 TOKEN REFRESH: Removing cached token...');
         await chrome.identity.removeCachedAuthToken({
           token: authToken,
         });
+        authToken = null;
+        console.log(
+          '🔄 TOKEN REFRESH: Cached token removed successfully'
+        );
       }
 
-      // Get new token
+      console.log(
+        '🔄 TOKEN REFRESH: Attempting non-interactive token refresh...'
+      );
+
+      // Get new token (non-interactive for automatic refresh)
       const response = await chrome.identity.getAuthToken({
         interactive: false,
         scopes: ['https://www.googleapis.com/auth/spreadsheets'],
       });
 
+      console.log(
+        '🔄 TOKEN REFRESH: Non-interactive response received'
+      );
+      console.log(
+        `🔄 TOKEN REFRESH: Response type: ${typeof response}`
+      );
+
       // Extract token from response (handle both object and string formats)
       let newToken;
       if (typeof response === 'object' && response.token) {
         newToken = response.token;
+        console.log(
+          '🔄 TOKEN REFRESH: Token extracted from object format'
+        );
+        console.log(
+          `🔄 TOKEN REFRESH: Granted scopes: ${JSON.stringify(
+            response.grantedScopes
+          )}`
+        );
       } else if (typeof response === 'string') {
         newToken = response;
+        console.log(
+          '🔄 TOKEN REFRESH: Token extracted from string format'
+        );
+      } else {
+        console.error(
+          '🔄 TOKEN REFRESH: Failed to extract token from response'
+        );
+        throw new Error('Failed to get refresh token');
       }
 
-      if (newToken) {
+      if (newToken && newToken.length > 0) {
         authToken = newToken;
         await chrome.storage.local.set({ authToken: newToken });
-        console.log('Token refreshed successfully');
+        console.log(
+          '✅ TOKEN REFRESH: Non-interactive refresh SUCCESSFUL'
+        );
+        console.log(
+          `✅ TOKEN REFRESH: New token length: ${newToken.length}`
+        );
+        console.log(
+          `✅ TOKEN REFRESH: New token starts with: ${newToken.substring(
+            0,
+            10
+          )}...`
+        );
+        return newToken;
+      } else {
+        console.error(
+          '❌ TOKEN REFRESH: Empty token received during non-interactive refresh'
+        );
+        throw new Error('Empty token received during refresh');
+      }
+    } catch (error) {
+      console.error(
+        '❌ TOKEN REFRESH: Non-interactive refresh failed:',
+        error.message
+      );
+      console.log(
+        '🔄 TOKEN REFRESH: Attempting interactive fallback...'
+      );
+
+      // If non-interactive refresh fails, try interactive as fallback
+      try {
+        const interactiveResponse =
+          await chrome.identity.getAuthToken({
+            interactive: true,
+            scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+          });
+
+        console.log(
+          '🔄 TOKEN REFRESH: Interactive response received'
+        );
+        console.log(
+          `🔄 TOKEN REFRESH: Interactive response type: ${typeof interactiveResponse}`
+        );
+
+        let interactiveToken;
+        if (
+          typeof interactiveResponse === 'object' &&
+          interactiveResponse.token
+        ) {
+          interactiveToken = interactiveResponse.token;
+          console.log(
+            '🔄 TOKEN REFRESH: Interactive token extracted from object format'
+          );
+        } else if (typeof interactiveResponse === 'string') {
+          interactiveToken = interactiveResponse;
+          console.log(
+            '🔄 TOKEN REFRESH: Interactive token extracted from string format'
+          );
+        }
+
+        if (interactiveToken) {
+          authToken = interactiveToken;
+          await chrome.storage.local.set({
+            authToken: interactiveToken,
+          });
+          console.log(
+            '✅ TOKEN REFRESH: Interactive refresh SUCCESSFUL'
+          );
+          console.log(
+            `✅ TOKEN REFRESH: Interactive token length: ${interactiveToken.length}`
+          );
+          console.log(
+            `✅ TOKEN REFRESH: Interactive token starts with: ${interactiveToken.substring(
+              0,
+              10
+            )}...`
+          );
+          return interactiveToken;
+        } else {
+          console.error(
+            '❌ TOKEN REFRESH: Empty token received during interactive refresh'
+          );
+        }
+      } catch (interactiveError) {
+        console.error(
+          '❌ TOKEN REFRESH: Interactive refresh also failed:',
+          interactiveError.message
+        );
       }
 
-      return newToken;
-    } catch (error) {
-      console.error('Token refresh failed:', error);
-      throw error;
+      console.error('❌ TOKEN REFRESH: All refresh attempts FAILED');
+      throw new Error(
+        'Token refresh failed - user may need to re-authenticate'
+      );
     }
   }
 
@@ -206,6 +339,21 @@ class GoogleSheetsAPI {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`Error adding headers: ${errorText}`);
+
+        // If 401, try to refresh the token and retry
+        if (response.status === 401) {
+          console.log(
+            '📋 ADD HEADERS: 401 error detected - triggering token refresh...'
+          );
+          await this.refreshToken();
+
+          console.log(
+            '📋 ADD HEADERS: Retrying add headers with refreshed token...'
+          );
+          // Retry adding headers with the new token
+          return await this.addHeaders();
+        }
+
         throw new Error(`Failed to add headers: ${response.status}`);
       }
 
@@ -261,6 +409,21 @@ class GoogleSheetsAPI {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`API Error Response: ${errorText}`);
+
+        // If 401, try to refresh the token and retry
+        if (response.status === 401) {
+          console.log(
+            '📝 APPEND COOKIES: 401 error detected - triggering token refresh...'
+          );
+          await this.refreshToken();
+
+          console.log(
+            '📝 APPEND COOKIES: Retrying append operation with refreshed token...'
+          );
+          // Retry the request with the new token
+          return await this.appendCookieData(cookieData);
+        }
+
         throw new Error(
           `HTTP error! status: ${response.status}, message: ${errorText}`
         );
@@ -329,6 +492,26 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // Main function to refresh tab and extract cookies
 async function refreshActiveTabAndExtractCookies() {
   try {
+    // Proactively refresh the token before each operation to prevent expiration
+    console.log(
+      '⏰ HOURLY OPERATION: Starting hourly refresh and cookie extraction...'
+    );
+    console.log(
+      '⏰ HOURLY OPERATION: Proactively refreshing token before operation...'
+    );
+
+    try {
+      await sheetsAPI.refreshToken();
+      console.log(
+        '✅ HOURLY OPERATION: Proactive token refresh completed successfully'
+      );
+    } catch (refreshError) {
+      console.error(
+        '❌ HOURLY OPERATION: Proactive token refresh failed, continuing with existing token:',
+        refreshError.message
+      );
+    }
+
     // Get the active tab
     const [activeTab] = await chrome.tabs.query({
       active: true,
@@ -336,17 +519,22 @@ async function refreshActiveTabAndExtractCookies() {
     });
 
     if (!activeTab) {
-      console.log('No active tab found');
+      console.log('❌ HOURLY OPERATION: No active tab found');
       return;
     }
 
-    console.log(`Refreshing tab: ${activeTab.url}`);
+    console.log(
+      `⏰ HOURLY OPERATION: Refreshing tab: ${activeTab.url}`
+    );
 
     // Refresh the active tab
     await chrome.tabs.reload(activeTab.id);
 
     // Wait for the page to load before extracting cookies
     setTimeout(async () => {
+      console.log(
+        '⏰ HOURLY OPERATION: Page loaded, extracting cookies...'
+      );
       await extractCookiesAndWriteToSheets(activeTab.url);
     }, 3000); // Wait 3 seconds for page to load
 
@@ -354,9 +542,13 @@ async function refreshActiveTabAndExtractCookies() {
     chrome.storage.local.set({
       lastRefresh: new Date().toISOString(),
     });
+
+    console.log(
+      '✅ HOURLY OPERATION: Hourly operation completed successfully'
+    );
   } catch (error) {
     console.error(
-      'Error refreshing tab and extracting cookies:',
+      '❌ HOURLY OPERATION: Error during hourly operation:',
       error
     );
   }
